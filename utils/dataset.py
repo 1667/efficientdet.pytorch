@@ -26,8 +26,8 @@ def make_datapath_list(rootpath):
     anno_path_template = os.path.join(rootpath, "Annotations", "%s.xml")
     
     # get id
-    train_id_names = os.path.join(rootpath, "ImageSets", "Main", "trainval.txt")
-    val_id_names = os.path.join(rootpath, "ImageSets", "Main", "test.txt")
+    train_id_names = os.path.join(rootpath, "ImageSets", "Main", "train.txt")
+    val_id_names = os.path.join(rootpath, "ImageSets", "Main", "trainval.txt")
     
     train_img_list = list()
     train_anno_list = list()
