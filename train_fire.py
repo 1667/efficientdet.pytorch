@@ -21,22 +21,14 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 from torch.autograd import Function
+from utils.to_fp16 import network_to_half
 
 
 #   
 # import dataset
-from utils.dataset import VOCDataset, COCODatasetTransform, make_datapath_list, Anno_xml2list, od_collate_fn
+from utils.dataset import VOCDataset, DatasetTransform, make_datapath_list, Anno_xml2list, od_collate_fn
 
 
-#   
-# select from efficientnet backbone or resnet backbone
-backbone = "efficientnet-b0"
-scale = 1
-# scale==1: resolution 300
-# scale==2: resolution 600
-useBiFPN = True
-# DATASET = "COCO"
-DATASET = "VOC"
 
 parser = argparse.ArgumentParser(
     description='Efficient Detector Training With Pytorch')
@@ -47,12 +39,36 @@ parser.add_argument('--batch_size', default=32, type=int,
                     help='Batch size for training')
 parser.add_argument('--num_epochs', default=200, type=int,
                     help='the number epochs')
+parser.add_argument('--backbone', default='efficientnet-b0', type=str,
+                    help='Checkpoint state_dict file to resume training from')
+parser.add_argument('--justver', default=False, type=bool,
+                    help='Checkpoint state_dict file to resume training from')
+parser.add_argument('--half', default=False, type=bool,
+                    help='Checkpoint state_dict file to resume training from')
 
 args = parser.parse_args()
 
+#   
+# select from efficientnet backbone or resnet backbone
+backbone = args.backbone
+
+print('Backbone '+backbone)
+
+scale = 1
+# scale==1: resolution 300
+# scale==2: resolution 600
+useBiFPN = True
+HALF = args.half # enable FP16
+DATASET = "VOC"
+retina = False # for trying retinanets
+
+if HALF:
+    print('run in half fp16')
+
 if args.resume:
     isRESUME = True
-
+else:
+    isRESUME = False
 #    [markdown]
 # ## make data.Dataset for training
 
@@ -82,16 +98,19 @@ if not DATASET == "COCO":
     voc_classes = ['fire']
 
     color_mean = (104, 117, 123)  # (BGR)の色の平均値
-    input_size = 300*scale  # 画像のinputサイズを300×300にする
+    if scale == 1:
+        input_size = 300  # 画像のinputサイズを300×300にする
+    else:
+        input_size = 512
 
     ## DatasetTransformを適応
-    transform = COCODatasetTransform(input_size, color_mean)
+    transform = DatasetTransform(input_size, color_mean)
     transform_anno = Anno_xml2list(voc_classes)
 
     # Dataloaderに入れるデータセットファイル。
     # ゲットで叩くと画像とGTを前処理して出力してくれる。
     train_dataset = VOCDataset(train_img_list, train_anno_list, phase = "train", transform=transform, transform_anno = transform_anno)
-    val_dataset = VOCDataset(val_img_list, val_anno_list, phase="val", transform=COCODatasetTransform(
+    val_dataset = VOCDataset(val_img_list, val_anno_list, phase="val", transform=DatasetTransform(
         input_size, color_mean), transform_anno=Anno_xml2list(voc_classes))
 
 else:
@@ -100,7 +119,10 @@ else:
     from utils.dataset import VOCDataset, COCODatasetTransform, make_datapath_list, Anno_xml2list, od_collate_fn
 
     color_mean = (104, 117, 123)  # (BGR)の色の平均値
-    input_size = 300  # 画像のinputサイズを300×300にする
+    if scale == 1:
+        input_size = 300  # 画像のinputサイズを300×300にする
+    else:
+        input_size = 512
 
     ## DatasetTransformを適応
     transform = COCODatasetTransform(input_size, color_mean)
@@ -154,57 +176,77 @@ if scale==1:
 elif scale==2:
     ssd_cfg = {
         'num_classes': num_class,  # 背景クラスを含めた合計クラス数
-        'input_size': 300*scale,  # 画像の入力サイズ
+        'input_size': 512,  # 画像の入力サイズ
         'bbox_aspect_num': [4, 6, 6, 6, 4, 4],  # 出力するDBoxのアスペクト比の種類
-        'feature_maps': [75, 38, 19, 10, 5, 3],  # 各sourceの画像サイズ
+        'feature_maps': [64, 32, 16, 8, 4, 2],  # 各sourceの画像サイズ
         'steps': [8, 16, 32, 64, 100, 300],  # DBOXの大きさを決める
         'min_sizes': [30, 60, 111, 162, 213, 264]*scale,  # DBOXの大きさを決める
         'max_sizes': [60, 111, 162, 213, 264, 315]*scale,  # DBOXの大きさを決める
         'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]],
     }
 
+if args.justver:
 # test if net works
-# net = EfficientDet(phase="train", cfg=ssd_cfg, verbose=True, backbone=backbone, useBiFPN=useBiFPN)
-# out = net(torch.rand([1,3,300,300]))
-# print(out[0].size())
+    net = EfficientDet(phase="train", cfg=ssd_cfg, verbose=True, backbone=backbone, useBiFPN=useBiFPN)
+    out = net(torch.rand([1,3,input_size,input_size]))
+    print(out[0].size())
+else:
+    #   
+    net = EfficientDet(phase="train", cfg=ssd_cfg, verbose=False, backbone=backbone, useBiFPN=useBiFPN)
+    #   
+    # print(net)
 
+    if retina:
+	    from utils.retinanet import RetinaFPN
+	    ssd_cfg = {
+		'num_classes': num_class,  # 背景クラスを含めた合計クラス数
+		'input_size': 300*scale,  # 画像の入力サイズ
+		'bbox_aspect_num': [4, 6, 6, 6, 4, 4],  # 出力するDBoxのアスペクト比の種類
+		'feature_maps': [38, 19, 10, 5, 3, 1],  # 各sourceの画像サイズ
+		'steps': [8, 16, 32, 64, 100, 300],  # DBOXの大きさを決める
+		'min_sizes': [30, 60, 111, 162, 213, 264],  # DBOXの大きさを決める
+		'max_sizes': [60, 111, 162, 213, 264, 315],  # DBOXの大きさを決める
+		'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]],
+	    }
+	    net = RetinaFPN("train", ssd_cfg)
+	
+    if HALF:
+	    net = network_to_half(net)
+	
 
-#   
-net = EfficientDet(phase="train", cfg=ssd_cfg, verbose=False, backbone=backbone, useBiFPN=useBiFPN)
+    # GPUが使えるか確認
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print("using:", device)
 
-# GPUが使えるか確認
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print("using:", device)
+    if isRESUME:
+        print("set weights from "+args.resume+" ==========")
 
-if isRESUME:
-    print("set weights from "+args.resume+" ==========")
+        net_weights = torch.load(args.resume,
+                                map_location={'cuda:0': 'cpu'})
 
-    net_weights = torch.load(args.resume,
-                            map_location={'cuda:0': 'cpu'})
+        net.load_state_dict(net_weights)
+    
+    
+    from utils.ssd_model import MultiBoxLoss
 
-    net.load_state_dict(net_weights)
-#   
-# print(net)
+    # define loss
+    criterion = MultiBoxLoss(jaccard_thresh=0.5,neg_pos=3, device=device, half=HALF)
 
-
-#   
-from utils.ssd_model import MultiBoxLoss
-
-# define loss
-criterion = MultiBoxLoss(jaccard_thresh=0.5,neg_pos=3, device=device)
-
-# optim
-import torch.optim as optim
-optimizer = optim.SGD(net.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
+    # optim
+    import torch.optim as optim
+    optimizer = optim.SGD(net.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
 
 
 #   
 def get_current_lr(epoch):
     
     if DATASET == "COCO":
-        reduce = [10, 15]
+        reduce = [20, 40]
         # warmup
-        lr = 1e-3
+        if epoch < 1:
+            lr = 1e-4
+        else:
+            lr = 1e-3
     else:
         reduce = [120,180]
         lr = 1e-3
@@ -275,7 +317,9 @@ def train_model(net, dataloaders_dict, criterion, optimizer, num_epochs):
                 images = images.to(device)
                 targets = [ann.to(device)
                            for ann in targets]  # リストの各要素のテンソルをGPUへ
-
+                if HALF:
+                    images = images.half()
+                    targets = [ann.half() for ann in targets]
                 # optimizerを初期化
                 optimizer.zero_grad()
 
@@ -283,7 +327,7 @@ def train_model(net, dataloaders_dict, criterion, optimizer, num_epochs):
                 with torch.set_grad_enabled(phase == 'train'):
                     # 順伝搬（forward）計算
                     outputs = net(images)
-
+                    #print(outputs[0].type())
                     # 損失の計算
                     loss_l, loss_c = criterion(outputs, targets)
                     loss = loss_l + loss_c
@@ -336,7 +380,11 @@ def train_model(net, dataloaders_dict, criterion, optimizer, num_epochs):
                 word="BiFPN"
             else:
                 word="FPN"
-            torch.save(net.state_dict(), 'weights/'+DATASET+"_"+backbone+"_" + str(300*scale) + "_" + word + "_" + 
+            if not HALF:
+                torch.save(net.state_dict(), 'weights/'+DATASET+"_"+backbone+"_" + str(300*scale) + "_" + word + "_" + 
+                       str(epoch+1) + '.pth')
+            else:
+                torch.save(net.state_dict(), 'weights/'+DATASET+"_"+backbone+"_half"+"_" + str(300*scale) + "_" + word + "_" + 
                        str(epoch+1) + '.pth')
 
 
@@ -351,7 +399,8 @@ else:
 
 if __name__ == "__main__":
 
-    train_model(net, dataloaders_dict, criterion, optimizer, num_epochs=args.num_epochs)
+    if not args.justver:
+        train_model(net, dataloaders_dict, criterion, optimizer, num_epochs=args.num_epochs)
 
 
 #   

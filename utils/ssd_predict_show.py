@@ -13,7 +13,7 @@ import torch.nn as nn
 class SSDPredictShow(nn.Module):
     """SSDでの予測と画像の表示をまとめて行うクラス"""
 
-    def __init__(self, eval_categories, net, device, TTA=True):
+    def __init__(self, eval_categories, net, device, TTA=True, image_size=300):
         super(SSDPredictShow, self).__init__()  # 親クラスのコンストラクタ実行
         print(device)
         self.eval_categories = eval_categories  # クラス名
@@ -22,7 +22,7 @@ class SSDPredictShow(nn.Module):
         self.TTA=TTA
 
         color_mean = (104, 117, 123)  # (BGR)の色の平均値
-        input_size = 300  # 画像のinputサイズを300×300にする
+        input_size = image_size  # 画像のinputサイズを300×300にする
         self.transform = DataTransform(input_size, color_mean)  # 前処理クラス
 
     def show(self, image_file_path, data_confidence_level):
@@ -106,7 +106,7 @@ class SSDPredictShow(nn.Module):
                 scores.append(sc)
 
         return rgb_img, predict_bbox, pre_dict_label_index, scores
-    def ssd_predict2(self, image_file_path, data_confidence_level=0.5):
+    def ssd_predict2(self, image_file_path, data_confidence_level=0.5,half = False):
         """
         SSDで予測させる関数。
 
@@ -127,14 +127,17 @@ class SSDPredictShow(nn.Module):
         img = cv2.imread(image_file_path)  # [高さ][幅][色BGR]
         height, width, channels = img.shape  # 画像のサイズを取得
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
+        
         # 画像の前処理
         phase = "val"
         img_transformed, boxes, labels = self.transform(
             img, phase, "", "")  # アノテーションが存在しないので""にする。
         img = torch.from_numpy(
             img_transformed[:, :, (2, 1, 0)]).permute(2, 0, 1).to(self.device)
-
+        # if half:
+            # print("change to half")
+            # img = img.half()
+            # print("img type",img.type())
         # SSDで予測
         #self.net.eval()  # ネットワークを推論モードへ
         x = img.unsqueeze(0)  # ミニバッチ化：torch.Size([1, 3, 300, 300])

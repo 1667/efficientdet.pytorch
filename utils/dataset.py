@@ -38,7 +38,7 @@ def make_datapath_list(rootpath):
         anno_path = (anno_path_template % file_id)
         train_img_list.append(img_path)
         train_anno_list.append(anno_path)
-        
+        # print(img_path)
     val_img_list = list()
     val_anno_list = list()
     if os.path.isfile(val_id_names):

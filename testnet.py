@@ -24,6 +24,7 @@ import torch.nn.init as init
 import torch.nn.functional as F
 from torch.autograd import Function
 import time,os
+from utils.to_fp16 import network_to_half
 
 #   
 # import dataset
@@ -42,6 +43,10 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('--model_file', default=None, type=str,
                     help='Checkpoint state_dict file to resume training from')
+parser.add_argument('--backbone', default='efficientnet-b0', type=str,
+                    help='Checkpoint state_dict file to resume training from')
+parser.add_argument('--half', default=False, type=bool,
+                    help='Checkpoint state_dict file to resume training from')
 
 args = parser.parse_args()
 
@@ -55,12 +60,13 @@ if args.model_file == None:
 print("load model "+args.model_file)
 model_file = args.model_file
 
+HALF = args.half # enable FP16
 pics = os.listdir(picdir)
 
 val_img_list = pics
 
 model="efficientdet"
-backbone = "efficientnet-b0"
+backbone = args.backbone
 scale = 1
 
 
@@ -147,7 +153,10 @@ elif model=="retina":
     net_weights = torch.load('./weights/retinanet300_200.pth',
                          map_location={'cuda:0': 'cpu'})
 else:
-    net = EfficientDet(phase="inference", cfg=ssd_cfg, verbose=False, backbone=backbone, useBiFPN=True)
+    net = EfficientDet(phase="inference", cfg=ssd_cfg, verbose=False, backbone=backbone, useBiFPN=True,half=HALF)
+
+    if HALF:
+	    net = network_to_half(net)
     net_weights = torch.load(model_file,
                          map_location={'cuda:0': 'cpu'})
 
@@ -211,7 +220,7 @@ def save_result_image(image_path,boxes,class_name):
 
 #   
 for i, imp in enumerate(val_img_list):
-    detections, pre_dict_label_index = ssd.ssd_predict2(picdir+imp, data_confidence_level=0.05)
+    detections, pre_dict_label_index = ssd.ssd_predict2(picdir+imp, data_confidence_level=0.05,half=True)
     
     for cls in range(len(class_names)):
         box = []
