@@ -106,7 +106,7 @@ class SSDPredictShow(nn.Module):
                 scores.append(sc)
 
         return rgb_img, predict_bbox, pre_dict_label_index, scores
-    def ssd_predict2(self, image_file_path, data_confidence_level=0.5,half = False):
+    def ssd_predict2(self, image_file_path, data_confidence_level=0.5,half = False,image_data=None):
         """
         SSDで予測させる関数。
 
@@ -124,7 +124,14 @@ class SSDPredictShow(nn.Module):
         """
 
         # rgbの画像データを取得
-        img = cv2.imread(image_file_path)  # [高さ][幅][色BGR]
+        img = None
+        if type(image_data) == np.ndarray :
+            img = image_data
+        else:
+            img = cv2.imread(image_file_path)  # [高さ][幅][色BGR]
+        
+            
+
         height, width, channels = img.shape  # 画像のサイズを取得
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         

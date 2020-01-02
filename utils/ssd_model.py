@@ -714,7 +714,7 @@ class Detect(Function):
                 # ids：confの降順にNon-Maximum Suppressionを通過したindexが格納
                 # count：Non-Maximum Suppressionを通過したBBoxの数
                 if self.half:
-                    print("predictions in half")
+                    # print("predictions in half")
                     boxes = boxes.half()
 
                 # outputにNon-Maximum Suppressionを抜けた結果を格納
